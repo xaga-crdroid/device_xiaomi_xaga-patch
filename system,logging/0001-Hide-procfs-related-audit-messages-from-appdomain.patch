@@ -1,0 +1,47 @@
+From 821f42c245d006c151213a54b097b859b8e6a743 Mon Sep 17 00:00:00 2001
+From: Han Wang <wanghan1995315@gmail.com>
+Date: Fri, 8 Aug 2025 22:47:26 -0700
+Subject: [PATCH] Hide procfs related audit messages from appdomain
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Unlike real Linux, audit messages are forwarded to logd via netlink
+socket on android, and logd will forward them to app itself. This
+means hidepid=2 cannot hide all information about other domains,
+because app can call getxattr on /proc/pid and get domain context by
+checking audit messages in logcat, as a side channel：
+
+W getfattr: type=1400 audit(0.0:215): avc:  denied  { getattr } for
+name="1491" dev="proc" ino=23935 scontext=u:r:untrusted_app:s0:c222,
+c256,c512,c768 tcontext=u:r:priv_app:s0 tclass=dir permissive=0
+app=com.demo.app
+
+Fix it by filtering any procfs related audit messages from main and
+event buffer, thus make hidepid=2 efficient again.
+
+Change-Id: Ia48c8470504743dff29ff794c054e1afd627249b
+---
+ logd/LogAudit.cpp | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/logd/LogAudit.cpp b/logd/LogAudit.cpp
+index 01c78c2a..2f9b51af 100644
+--- a/logd/LogAudit.cpp
++++ b/logd/LogAudit.cpp
+@@ -260,6 +260,12 @@ int LogAudit::logPrint(const char* fmt, ...) {
+         writev(fdDmesg, iov, arraysize(iov));
+     }
+ 
++    // Hide procfs related audit messages from appdomain to prevent selinux context leak
++    if (uid >= AID_APP_START && strstr(str, "dev=\"proc\"")) {
++        free(str);
++        return 0;
++    }
++
+     if (!main && !events) {
+         free(str);
+         return 0;
+-- 
+2.34.1
+

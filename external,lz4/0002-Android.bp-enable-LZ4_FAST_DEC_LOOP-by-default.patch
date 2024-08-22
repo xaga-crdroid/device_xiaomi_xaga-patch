@@ -1,0 +1,33 @@
+From 4389e444dcfb4b9b6217eb0ec4b74cf17edf1fc5 Mon Sep 17 00:00:00 2001
+From: Juhyung Park <qkrwngud825@gmail.com>
+Date: Tue, 15 Apr 2025 13:57:07 +0900
+Subject: [PATCH 2/2] Android.bp: enable LZ4_FAST_DEC_LOOP by default
+
+It appears that things have changed since the original disablement [1].
+
+This improves decompression performance by 2.71-10.23% [2].
+
+[1] https://github.com/lz4/lz4/pull/707
+[2] https://docs.google.com/spreadsheets/d/1DoO3d1zRzPgrD63F7ev7wwSKmRD0PCIYrb0HVlz11aA/edit?usp=sharing
+
+Change-Id: If5aef2a13e5cfaee90067f0426d8033a4ba31bad
+Signed-off-by: Juhyung Park <qkrwngud825@gmail.com>
+---
+ lib/Android.bp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/lib/Android.bp b/lib/Android.bp
+index f13bcdbe..1a4a4d0f 100644
+--- a/lib/Android.bp
++++ b/lib/Android.bp
+@@ -48,6 +48,6 @@ cc_library {
+         "lz4frame.c",
+         "xxhash.c",
+     ],
+-    cflags: ["-O3", "-Wall", "-Werror"],
++    cflags: ["-O3", "-Wall", "-Werror", "-DLZ4_FAST_DEC_LOOP=1"],
+     export_include_dirs: ["."],
+ }
+-- 
+2.34.1
+

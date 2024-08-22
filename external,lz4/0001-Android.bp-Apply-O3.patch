@@ -1,0 +1,28 @@
+From b5c03c2f4fdfe6a4e78f4a6929bc3103d9b255b0 Mon Sep 17 00:00:00 2001
+From: Juhyung Park <qkrwngud825@gmail.com>
+Date: Tue, 15 Apr 2025 13:53:12 +0900
+Subject: [PATCH 1/2] Android.bp: Apply -O3
+
+-O3 is used by default and should be applied to Android as well.
+
+Change-Id: I7c6f22fa0258bf3317f735e8f8ac22eb26d9e31d
+Signed-off-by: Juhyung Park <qkrwngud825@gmail.com>
+---
+ lib/Android.bp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/lib/Android.bp b/lib/Android.bp
+index 007ebd78..f13bcdbe 100644
+--- a/lib/Android.bp
++++ b/lib/Android.bp
+@@ -48,6 +48,6 @@ cc_library {
+         "lz4frame.c",
+         "xxhash.c",
+     ],
+-    cflags: ["-Wall", "-Werror"],
++    cflags: ["-O3", "-Wall", "-Werror"],
+     export_include_dirs: ["."],
+ }
+-- 
+2.34.1
+

@@ -1,0 +1,173 @@
+From 1d246189a119326e2fae1620222a0715c78a8704 Mon Sep 17 00:00:00 2001
+From: ChrisCatto <chriscatto@proton.me>
+Date: Wed, 4 Mar 2026 18:30:27 +0000
+Subject: [PATCH] build: Fix rbe build [1/2]
+
+Change-Id: Idc883d944345f54a13feecd2061b5fd051cfbf88
+Signed-off-by: ChrisCatto <chriscatto@proton.me>
+---
+ core/rbe.mk           |   7 ++-
+ rbe/rewrapper_shim.sh | 129 ++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 134 insertions(+), 2 deletions(-)
+ create mode 100755 rbe/rewrapper_shim.sh
+
+diff --git a/core/rbe.mk b/core/rbe.mk
+index e1e7573..c2cbd21 100644
+--- a/core/rbe.mk
++++ b/core/rbe.mk
+@@ -68,7 +68,11 @@ ifneq ($(filter-out false,$(USE_REWRAPPER)),)
+   cxx_platform := $(platform),Pool=$(cxx_pool)
+   java_r8_d8_platform := $(platform),Pool=$(java_pool)
+ 
+-  RBE_WRAPPER := $(rbe_dir)/rewrapper
++  ifdef RBE_WRAPPER
++    RBE_WRAPPER := $(RBE_WRAPPER)
++  else
++    RBE_WRAPPER := build/make/rbe/rewrapper_shim.sh
++  endif
+   RBE_CXX := --labels=type=compile,lang=cpp,compiler=clang --env_var_allowlist=PWD --exec_strategy=$(cxx_rbe_exec_strategy) --platform=$(cxx_platform) --compare=$(cxx_compare)
+ 
+   # Append rewrapper to existing *_WRAPPER variables so it's possible to
+@@ -90,4 +94,3 @@ ifneq ($(filter-out false,$(USE_REWRAPPER)),)
+ 
+   rbe_dir :=
+ endif
+-
+diff --git a/rbe/rewrapper_shim.sh b/rbe/rewrapper_shim.sh
+new file mode 100755
+index 0000000..3cd6cf7
+--- /dev/null
++++ b/rbe/rewrapper_shim.sh
+@@ -0,0 +1,129 @@
++#!/bin/bash
++
++set -euo pipefail
++
++find_real_rewrapper() {
++  if [[ -n "${RBE_WRAPPER_REAL:-}" ]]; then
++    printf '%s\n' "${RBE_WRAPPER_REAL}"
++    return
++  fi
++
++  if [[ -n "${RBE_DIR:-}" ]]; then
++    printf '%s\n' "${RBE_DIR}/rewrapper"
++    return
++  fi
++
++  printf '%s\n' "prebuilts/remoteexecution-client/live/rewrapper"
++}
++
++find_exec_root() {
++  local arg
++  for arg in "$@"; do
++    case "${arg}" in
++      -exec_root=*)
++        printf '%s\n' "${arg#-exec_root=}"
++        return
++        ;;
++    esac
++  done
++
++  if [[ -n "${RBE_exec_root:-}" ]]; then
++    printf '%s\n' "${RBE_exec_root}"
++    return
++  fi
++
++  pwd
++}
++
++rewrite_args() {
++  local workdir="$1"
++  shift
++
++  local -a args=("$@")
++  local keep_input="${workdir}/.keep"
++  local -a rewritten=()
++  local saw_inputs=0
++  local cmd_start=-1
++  local i arg
++
++  for ((i = 0; i < ${#args[@]}; i++)); do
++    arg="${args[i]}"
++    if [[ "${arg}" == "--" ]]; then
++      cmd_start=$((i + 1))
++      break
++    fi
++  done
++
++  if (( cmd_start < 0 )); then
++    for ((i = 0; i < ${#args[@]}; i++)); do
++      arg="${args[i]}"
++      if [[ "${arg}" != -* ]] || [[ "${arg}" == "-" ]]; then
++        cmd_start="${i}"
++        break
++      fi
++    done
++  fi
++
++  if (( cmd_start < 0 )); then
++    printf '%s\0' "${args[@]}"
++    return 0
++  fi
++
++  for ((i = 0; i < cmd_start; i++)); do
++    arg="${args[i]}"
++    if [[ "${arg}" == "--" ]]; then
++      continue
++    fi
++    case "${arg}" in
++      -inputs=*)
++        saw_inputs=1
++        rewritten+=("-inputs=${keep_input},${arg#-inputs=}")
++        ;;
++      *)
++        rewritten+=("${arg}")
++        ;;
++    esac
++  done
++
++  if (( saw_inputs == 0 )); then
++    rewritten+=("-inputs=${keep_input}")
++  fi
++
++  for ((i = cmd_start; i < ${#args[@]}; i++)); do
++    rewritten+=("${args[i]}")
++  done
++
++  printf '%s\0' "${rewritten[@]}"
++}
++
++main() {
++  local exec_root real_rewrapper shim_dir workdir
++
++  exec_root="$(find_exec_root "$@")"
++  real_rewrapper="$(find_real_rewrapper)"
++  if [[ "${real_rewrapper}" != /* ]]; then
++    real_rewrapper="${exec_root}/${real_rewrapper}"
++  fi
++  shim_dir="${exec_root}/.rbe_shim"
++  workdir="${shim_dir}/wd"
++
++  mkdir -p "${workdir}"
++  : > "${workdir}/.keep"
++
++  local entry name target
++  for entry in "${exec_root}"/* "${exec_root}"/.[!.]* "${exec_root}"/..?*; do
++    [[ -e "${entry}" ]] || continue
++    name="${entry##*/}"
++    [[ "${name}" == ".rbe_shim" ]] && continue
++    target="${workdir}/${name}"
++    ln -sfnT "../../${name}" "${target}"
++  done
++
++  local -a rewritten
++  mapfile -d '' -t rewritten < <(rewrite_args ".rbe_shim/wd" "$@")
++
++  cd "${workdir}"
++  exec "${real_rewrapper}" "${rewritten[@]}"
++}
++
++main "$@"
+-- 
+2.51.0
+

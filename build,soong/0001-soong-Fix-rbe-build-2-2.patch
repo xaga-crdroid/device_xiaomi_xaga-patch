@@ -1,0 +1,35 @@
+From d8ae49c476254878222c9fbea26627cc578a0478 Mon Sep 17 00:00:00 2001
+From: ChrisCatto <chriscatto@proton.me>
+Date: Wed, 4 Mar 2026 18:31:24 +0000
+Subject: [PATCH] soong: Fix rbe build [2/2]
+
+Change-Id: If7a6b5ed3fddf05bf768c60cba0b35b14162e072
+Signed-off-by: ChrisCatto <chriscatto@proton.me>
+---
+ android/config.go | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/android/config.go b/android/config.go
+index 3236911..7058b6f 100644
+--- a/android/config.go
++++ b/android/config.go
+@@ -35,7 +35,6 @@ import (
+ 	"github.com/google/blueprint/proptools"
+ 
+ 	"android/soong/android/soongconfig"
+-	"android/soong/remoteexec"
+ 	"android/soong/shared"
+ )
+ 
+@@ -2392,7 +2391,7 @@ func (c *config) ApexBootJars() ConfiguredJarList {
+ }
+ 
+ func (c *config) RBEWrapper() string {
+-	return c.GetenvWithDefault("RBE_WRAPPER", remoteexec.DefaultWrapperPath)
++	return c.GetenvWithDefault("RBE_WRAPPER", "build/make/rbe/rewrapper_shim.sh")
+ }
+ 
+ // UseHostMusl returns true if the host target has been configured to build against musl libc.
+-- 
+2.51.0
+

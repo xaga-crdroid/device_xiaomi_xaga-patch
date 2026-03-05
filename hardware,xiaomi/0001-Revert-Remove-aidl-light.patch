@@ -1,0 +1,1541 @@
+From 9debf11c5dd1860bb8f9ee46488e195dbdeb4374 Mon Sep 17 00:00:00 2001
+From: bachnxuan <bachnxuan@gmail.com>
+Date: Thu, 5 Mar 2026 20:10:51 +0700
+Subject: [PATCH 1/1] Revert "Remove aidl/light"
+
+This reverts commit dc3069c44bfa678d7bc8f84bc7417e5f4e88240a.
+---
+ aidl/light/Android.bp                         |  28 +++
+ aidl/light/BacklightDevice.cpp                |  55 +++++
+ aidl/light/BacklightDevice.h                  |  66 ++++++
+ aidl/light/Devices.cpp                        | 220 ++++++++++++++++++
+ aidl/light/Devices.h                          |  52 +++++
+ aidl/light/IDumpable.h                        |  32 +++
+ aidl/light/LedDevice.cpp                      | 158 +++++++++++++
+ aidl/light/LedDevice.h                        | 102 ++++++++
+ aidl/light/Lights.cpp                         | 133 +++++++++++
+ aidl/light/Lights.h                           |  43 ++++
+ aidl/light/RgbLedDevice.cpp                   | 146 ++++++++++++
+ aidl/light/RgbLedDevice.h                     | 104 +++++++++
+ aidl/light/Utils.cpp                          |  54 +++++
+ aidl/light/Utils.h                            |  60 +++++
+ .../android.hardware.light-service.xiaomi.rc  | 106 +++++++++
+ .../android.hardware.light-service.xiaomi.xml |   7 +
+ aidl/light/service.cpp                        |  27 +++
+ 17 files changed, 1393 insertions(+)
+ create mode 100644 aidl/light/Android.bp
+ create mode 100644 aidl/light/BacklightDevice.cpp
+ create mode 100644 aidl/light/BacklightDevice.h
+ create mode 100644 aidl/light/Devices.cpp
+ create mode 100644 aidl/light/Devices.h
+ create mode 100644 aidl/light/IDumpable.h
+ create mode 100644 aidl/light/LedDevice.cpp
+ create mode 100644 aidl/light/LedDevice.h
+ create mode 100644 aidl/light/Lights.cpp
+ create mode 100644 aidl/light/Lights.h
+ create mode 100644 aidl/light/RgbLedDevice.cpp
+ create mode 100644 aidl/light/RgbLedDevice.h
+ create mode 100644 aidl/light/Utils.cpp
+ create mode 100644 aidl/light/Utils.h
+ create mode 100644 aidl/light/android.hardware.light-service.xiaomi.rc
+ create mode 100644 aidl/light/android.hardware.light-service.xiaomi.xml
+ create mode 100644 aidl/light/service.cpp
+
+diff --git a/aidl/light/Android.bp b/aidl/light/Android.bp
+new file mode 100644
+index 0000000..574480a
+--- /dev/null
++++ b/aidl/light/Android.bp
+@@ -0,0 +1,28 @@
++//
++// Copyright (C) 2021-2024 The LineageOS Project
++//
++// SPDX-License-Identifier: Apache-2.0
++//
++
++cc_binary {
++    name: "android.hardware.light-service.xiaomi",
++    defaults: ["hidl_defaults"],
++    vendor: true,
++    relative_install_path: "hw",
++    init_rc: ["android.hardware.light-service.xiaomi.rc"],
++    vintf_fragments: ["android.hardware.light-service.xiaomi.xml"],
++    srcs: [
++        "BacklightDevice.cpp",
++        "Devices.cpp",
++        "LedDevice.cpp",
++        "Lights.cpp",
++        "RgbLedDevice.cpp",
++        "Utils.cpp",
++        "service.cpp",
++    ],
++    shared_libs: [
++        "libbase",
++        "libbinder_ndk",
++        "android.hardware.light-V2-ndk",
++    ],
++}
+diff --git a/aidl/light/BacklightDevice.cpp b/aidl/light/BacklightDevice.cpp
+new file mode 100644
+index 0000000..67ba707
+--- /dev/null
++++ b/aidl/light/BacklightDevice.cpp
+@@ -0,0 +1,55 @@
++/*
++ * Copyright (C) 2022-2024 The LineageOS Project
++ *
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++#include "BacklightDevice.h"
++
++#define LOG_TAG "BacklightDevice"
++
++#include <android-base/logging.h>
++#include <fstream>
++#include "Utils.h"
++
++namespace aidl {
++namespace android {
++namespace hardware {
++namespace light {
++
++static const std::string kBacklightBasePath = "/sys/class/backlight/";
++static const uint32_t kDefaultMaxBrightness = 255;
++
++static const std::string kBrightnessNode = "brightness";
++static const std::string kMaxBrightnessNode = "max_brightness";
++
++BacklightDevice::BacklightDevice(std::string name)
++    : mName(name), mBasePath(kBacklightBasePath + name + "/") {
++    if (!readFromFile(mBasePath + kMaxBrightnessNode, mMaxBrightness)) {
++        mMaxBrightness = kDefaultMaxBrightness;
++    }
++};
++
++std::string BacklightDevice::getName() const {
++    return mName;
++}
++
++bool BacklightDevice::exists() const {
++    return std::ifstream(mBasePath + kBrightnessNode).good();
++}
++
++bool BacklightDevice::setBrightness(uint8_t value) {
++    return writeToFile(mBasePath + kBrightnessNode, scaleBrightness(value, mMaxBrightness));
++}
++
++void BacklightDevice::dump(int fd) const {
++    dprintf(fd, "Name: %s", mName.c_str());
++    dprintf(fd, ", exists: %d", exists());
++    dprintf(fd, ", base path: %s", mBasePath.c_str());
++    dprintf(fd, ", max brightness: %u", mMaxBrightness);
++}
++
++}  // namespace light
++}  // namespace hardware
++}  // namespace android
++}  // namespace aidl
+diff --git a/aidl/light/BacklightDevice.h b/aidl/light/BacklightDevice.h
+new file mode 100644
+index 0000000..a807fd3
+--- /dev/null
++++ b/aidl/light/BacklightDevice.h
+@@ -0,0 +1,66 @@
++/*
++ * Copyright (C) 2022-2024 The LineageOS Project
++ *
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++#pragma once
++
++#include <cstdint>
++#include <string>
++#include "IDumpable.h"
++
++namespace aidl {
++namespace android {
++namespace hardware {
++namespace light {
++
++/**
++ * A Linux backlight device.
++ * @see https://www.kernel.org/doc/Documentation/ABI/stable/sysfs-class-backlight
++ */
++class BacklightDevice : public IDumpable {
++  public:
++    BacklightDevice() = delete;
++
++    /**
++     * Constructor.
++     *
++     * @param name The name of the backlight device
++     */
++    BacklightDevice(std::string name);
++
++    /**
++     * Get the name of the backlight device.
++     *
++     * @return std::string The name of the backlight device
++     */
++    std::string getName() const;
++
++    /**
++     * Return whether this backlight device exists.
++     *
++     * @return bool true if the backlight device exists, false otherwise
++     */
++    bool exists() const;
++
++    /**
++     * Set the brightness of this backlight device.
++     *
++     * @param value The brightness value to set
++     * @return bool true if the brightness was set successfully, false otherwise
++     */
++    bool setBrightness(uint8_t value);
++
++    void dump(int fd) const override;
++
++  private:
++    std::string mName;
++    std::string mBasePath;
++    uint32_t mMaxBrightness;
++};
++
++}  // namespace light
++}  // namespace hardware
++}  // namespace android
++}  // namespace aidl
+diff --git a/aidl/light/Devices.cpp b/aidl/light/Devices.cpp
+new file mode 100644
+index 0000000..6c0a25a
+--- /dev/null
++++ b/aidl/light/Devices.cpp
+@@ -0,0 +1,220 @@
++/*
++ * Copyright (C) 2024 The LineageOS Project
++ *
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++#include "Devices.h"
++
++#define LOG_TAG "Devices"
++
++#include <android-base/logging.h>
++
++namespace aidl {
++namespace android {
++namespace hardware {
++namespace light {
++
++static const std::string kBacklightDevices[] = {
++        "backlight",
++        "panel0-backlight",
++};
++
++static std::vector<BacklightDevice> getBacklightDevices() {
++    std::vector<BacklightDevice> devices;
++
++    for (const auto& device : kBacklightDevices) {
++        BacklightDevice backlight(device);
++        if (backlight.exists()) {
++            LOG(INFO) << "Found backlight device: " << backlight.getName();
++            devices.push_back(backlight);
++        }
++    }
++
++    return devices;
++}
++
++static const std::string kLedBacklightDevices[] = {
++        "lcd-backlight",
++};
++
++static std::vector<LedDevice> getBacklightLedDevices() {
++    std::vector<LedDevice> devices;
++
++    for (const auto& device : kLedBacklightDevices) {
++        LedDevice backlight(device);
++        if (backlight.exists()) {
++            LOG(INFO) << "Found backlight LED device: " << backlight.getName();
++            devices.push_back(backlight);
++        }
++    }
++
++    return devices;
++}
++
++static const std::string kButtonLedDevices[] = {
++        "button-backlight",
++        "button-backlight1",
++        "button-backlight2",
++};
++
++static std::vector<LedDevice> getButtonLedDevices() {
++    std::vector<LedDevice> devices;
++
++    for (const auto& device : kButtonLedDevices) {
++        LedDevice button(device);
++        if (button.exists()) {
++            LOG(INFO) << "Found button LED device: " << button.getName();
++            devices.emplace_back(button);
++        }
++    }
++
++    return devices;
++}
++
++static const std::string kRgbLedDevices[][4] = {
++        {"red", "green", "blue", "/sys/class/leds/rgb/rgb_blink"},
++};
++
++static std::vector<RgbLedDevice> getNotificationRgbLedDevices() {
++    std::vector<RgbLedDevice> devices;
++
++    for (const auto& device : kRgbLedDevices) {
++        LedDevice red(device[0]);
++        LedDevice green(device[1]);
++        LedDevice blue(device[2]);
++
++        RgbLedDevice rgbLedDevice(red, green, blue, device[3]);
++        if (rgbLedDevice.exists()) {
++            LOG(INFO) << "Found notification RGB LED device: " << red.getName() << ", "
++                      << green.getName() << ", " << blue.getName();
++            devices.emplace_back(red, green, blue, device[3]);
++        }
++    }
++
++    return devices;
++}
++
++static const std::string kNotificationLedDevices[] = {
++        "left",
++        "white",
++};
++
++static std::vector<LedDevice> getNotificationLedDevices() {
++    std::vector<LedDevice> devices;
++
++    for (const auto& device : kNotificationLedDevices) {
++        LedDevice notification(device);
++        if (notification.exists()) {
++            LOG(INFO) << "Found notification LED device: " << notification.getName();
++            devices.emplace_back(notification);
++        }
++    }
++
++    return devices;
++}
++
++Devices::Devices()
++    : mBacklightDevices(getBacklightDevices()),
++      mBacklightLedDevices(getBacklightLedDevices()),
++      mButtonLedDevices(getButtonLedDevices()),
++      mNotificationRgbLedDevices(getNotificationRgbLedDevices()),
++      mNotificationLedDevices(getNotificationLedDevices()) {
++    if (!hasBacklightDevices()) {
++        LOG(INFO) << "No backlight devices found";
++    }
++
++    if (!hasButtonDevices()) {
++        LOG(INFO) << "No button devices found";
++    }
++
++    if (!hasNotificationDevices()) {
++        LOG(INFO) << "No notification devices found";
++    }
++}
++
++bool Devices::hasBacklightDevices() const {
++    return !mBacklightDevices.empty() || !mBacklightLedDevices.empty();
++}
++
++bool Devices::hasButtonDevices() const {
++    return !mButtonLedDevices.empty();
++}
++
++bool Devices::hasNotificationDevices() const {
++    return !mNotificationRgbLedDevices.empty() || !mNotificationLedDevices.empty();
++}
++
++void Devices::setBacklightColor(rgb color) {
++    for (auto& device : mBacklightDevices) {
++        device.setBrightness(color.toBrightness());
++    }
++    for (auto& device : mBacklightLedDevices) {
++        device.setBrightness(color.toBrightness());
++    }
++}
++
++void Devices::setButtonsColor(rgb color) {
++    for (auto& device : mButtonLedDevices) {
++        device.setBrightness(color.toBrightness());
++    }
++}
++
++void Devices::setNotificationColor(rgb color, LightMode mode, uint32_t flashOnMs,
++                                   uint32_t flashOffMs) {
++    for (auto& device : mNotificationRgbLedDevices) {
++        device.setBrightness(color, mode, flashOnMs, flashOffMs);
++    }
++
++    for (auto& device : mNotificationLedDevices) {
++        device.setBrightness(color.toBrightness(), mode, flashOnMs, flashOffMs);
++    }
++}
++
++void Devices::dump(int fd) const {
++    dprintf(fd, "Backlight devices:\n");
++    for (const auto& device : mBacklightDevices) {
++        dprintf(fd, "- ");
++        device.dump(fd);
++        dprintf(fd, "\n");
++    }
++    dprintf(fd, "\n");
++
++    dprintf(fd, "Backlight LED devices:\n");
++    for (const auto& device : mBacklightLedDevices) {
++        dprintf(fd, "- ");
++        device.dump(fd);
++        dprintf(fd, "\n");
++    }
++    dprintf(fd, "\n");
++
++    dprintf(fd, "Button LED devices:\n");
++    for (const auto& device : mButtonLedDevices) {
++        dprintf(fd, "- ");
++        device.dump(fd);
++        dprintf(fd, "\n");
++    }
++    dprintf(fd, "\n");
++
++    dprintf(fd, "Notification RGB LED devices:\n");
++    for (const auto& device : mNotificationRgbLedDevices) {
++        dprintf(fd, "- ");
++        device.dump(fd);
++        dprintf(fd, "\n");
++    }
++    dprintf(fd, "\n");
++
++    dprintf(fd, "Notification LED devices:\n");
++    for (const auto& device : mNotificationLedDevices) {
++        dprintf(fd, "- ");
++        device.dump(fd);
++        dprintf(fd, "\n");
++    }
++
++    return;
++}
++
++}  // namespace light
++}  // namespace hardware
++}  // namespace android
++}  // namespace aidl
+diff --git a/aidl/light/Devices.h b/aidl/light/Devices.h
+new file mode 100644
+index 0000000..ab8d6fa
+--- /dev/null
++++ b/aidl/light/Devices.h
+@@ -0,0 +1,52 @@
++/*
++ * Copyright (C) 2024 The LineageOS Project
++ *
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++#pragma once
++
++#include <vector>
++#include "BacklightDevice.h"
++#include "IDumpable.h"
++#include "LedDevice.h"
++#include "RgbLedDevice.h"
++#include "Utils.h"
++
++namespace aidl {
++namespace android {
++namespace hardware {
++namespace light {
++
++class Devices : public IDumpable {
++  public:
++    Devices();
++
++    bool hasBacklightDevices() const;
++    bool hasButtonDevices() const;
++    bool hasNotificationDevices() const;
++
++    void setBacklightColor(rgb color);
++    void setButtonsColor(rgb color);
++    void setNotificationColor(rgb color, LightMode mode = LightMode::STATIC, uint32_t flashOnMs = 0,
++                              uint32_t flashOffMs = 0);
++
++    void dump(int fd) const override;
++
++  private:
++    // Backlight
++    std::vector<BacklightDevice> mBacklightDevices;
++    std::vector<LedDevice> mBacklightLedDevices;
++
++    // Buttons
++    std::vector<LedDevice> mButtonLedDevices;
++
++    // Notifications
++    std::vector<RgbLedDevice> mNotificationRgbLedDevices;
++    std::vector<LedDevice> mNotificationLedDevices;
++};
++
++}  // namespace light
++}  // namespace hardware
++}  // namespace android
++}  // namespace aidl
+diff --git a/aidl/light/IDumpable.h b/aidl/light/IDumpable.h
+new file mode 100644
+index 0000000..ef672e1
+--- /dev/null
++++ b/aidl/light/IDumpable.h
+@@ -0,0 +1,32 @@
++/*
++ * Copyright (C) 2024 The LineageOS Project
++ *
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++#pragma once
++
++namespace aidl {
++namespace android {
++namespace hardware {
++namespace light {
++
++/**
++ * Interface for dumpable objects using AIDL dump()'s file descriptor.
++ */
++class IDumpable {
++  public:
++    virtual ~IDumpable() = default;
++
++    /**
++     * Write information regarding this object to the given file descriptor using dprintf().
++     * You should avoid ending newline, since the caller will add it.
++     * @param fd The file descriptor to write to.
++     */
++    virtual void dump(int fd) const = 0;
++};
++
++}  // namespace light
++}  // namespace hardware
++}  // namespace android
++}  // namespace aidl
+diff --git a/aidl/light/LedDevice.cpp b/aidl/light/LedDevice.cpp
+new file mode 100644
+index 0000000..a822432
+--- /dev/null
++++ b/aidl/light/LedDevice.cpp
+@@ -0,0 +1,158 @@
++/*
++ * Copyright (C) 2021-2024 The LineageOS Project
++ *
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++#include "LedDevice.h"
++
++#define LOG_TAG "LedDevice"
++
++#include <android-base/logging.h>
++#include <fstream>
++#include "Utils.h"
++
++namespace aidl {
++namespace android {
++namespace hardware {
++namespace light {
++
++static const uint32_t kDefaultMaxBrightness = 255;
++
++static const std::string kBaseLedsPath = "/sys/class/leds/";
++
++static const std::string kBrightnessNode = "brightness";
++static const std::string kMaxBrightnessNode = "max_brightness";
++
++static const std::string kBreathNodes[] = {
++        "breath",
++        "blink",
++};
++
++static const std::string kBlinkNode = "blink";
++static const std::string kStartIdxNode = "start_idx";
++static const std::string kDutyPctsNode = "duty_pcts";
++static const std::string kPauseLoNode = "pause_lo";
++static const std::string kPauseHiNode = "pause_hi";
++static const std::string kRampStepMsNode = "ramp_step_ms";
++
++static constexpr int kRampSteps = 8;
++static constexpr int kRampMaxStepDurationMs = 50;
++
++LedDevice::LedDevice(std::string name)
++    : mName(name), mIdx(0), mBasePath(kBaseLedsPath + name + "/") {
++    if (!readFromFile(mBasePath + kMaxBrightnessNode, mMaxBrightness)) {
++        mMaxBrightness = kDefaultMaxBrightness;
++    }
++
++    for (const auto& node : kBreathNodes) {
++        if (std::ifstream(mBasePath + node).good()) {
++            mBreathNode = node;
++            break;
++        }
++    }
++
++    mSupportsTimed = std::ifstream(mBasePath + kBlinkNode).good() &&
++                     std::ifstream(mBasePath + kStartIdxNode).good() &&
++                     std::ifstream(mBasePath + kDutyPctsNode).good() &&
++                     std::ifstream(mBasePath + kPauseLoNode).good() &&
++                     std::ifstream(mBasePath + kPauseHiNode).good() &&
++                     std::ifstream(mBasePath + kRampStepMsNode).good();
++}
++
++std::string LedDevice::getName() const {
++    return mName;
++}
++
++bool LedDevice::supportsBreath() const {
++    return !mBreathNode.empty();
++}
++
++bool LedDevice::supportsTimed() const {
++    return mSupportsTimed;
++}
++
++bool LedDevice::exists() const {
++    return std::ifstream(mBasePath + kBrightnessNode).good();
++}
++
++static std::string getScaledDutyPercent(uint8_t brightness) {
++    std::string output;
++    for (int i = 0; i < kRampSteps; i++) {
++        if (i != 0) {
++            output += ",";
++        }
++        output += std::to_string(i * 100 * brightness / (0xFF * kRampSteps));
++    }
++    return output;
++}
++
++bool LedDevice::setBrightness(uint8_t value, LightMode mode, uint32_t flashOnMs,
++                              uint32_t flashOffMs) {
++    // Disable current blinking
++    if (mSupportsTimed) {
++        writeToFile(mBasePath + kBlinkNode, 0);
++    }
++    if (supportsBreath()) {
++        writeToFile(mBasePath + mBreathNode, 0);
++    }
++
++    switch (mode) {
++        case LightMode::TIMED:
++            if (mSupportsTimed) {
++                int32_t stepDuration = kRampMaxStepDurationMs;
++                int32_t pauseLo = flashOffMs;
++                int32_t pauseHi = flashOnMs - (stepDuration * kRampSteps * 2);
++
++                if (pauseHi < 0) {
++                    stepDuration = flashOnMs / (kRampSteps * 2);
++                    pauseHi = 0;
++                }
++
++                return writeToFile(mBasePath + kStartIdxNode, mIdx * kRampSteps) &&
++                       writeToFile(mBasePath + kDutyPctsNode, getScaledDutyPercent(value)) &&
++                       writeToFile(mBasePath + kPauseLoNode, pauseLo) &&
++                       writeToFile(mBasePath + kPauseHiNode, pauseHi) &&
++                       writeToFile(mBasePath + kRampStepMsNode, stepDuration) &&
++                       writeToFile(mBasePath + kBlinkNode, 1);
++            }
++
++            // Fallthrough to breath mode if timed is not supported
++            FALLTHROUGH_INTENDED;
++        case LightMode::BREATH:
++            if (supportsBreath()) {
++                return writeToFile(mBasePath + mBreathNode, value > 0 ? 1 : 0);
++                break;
++            }
++
++            // Fallthrough to static mode if breath is not supported
++            FALLTHROUGH_INTENDED;
++        case LightMode::STATIC:
++            return writeToFile(mBasePath + kBrightnessNode, scaleBrightness(value, mMaxBrightness));
++            break;
++        default:
++            LOG(ERROR) << "Unknown mode: " << mode;
++            return false;
++            break;
++    }
++}
++
++void LedDevice::setIdx(int idx) {
++    mIdx = idx;
++}
++
++void LedDevice::dump(int fd) const {
++    dprintf(fd, "Name: %s", mName.c_str());
++    dprintf(fd, ", index: %d", mIdx);
++    dprintf(fd, ", exists: %d", exists());
++    dprintf(fd, ", base path: %s", mBasePath.c_str());
++    dprintf(fd, ", max brightness: %u", mMaxBrightness);
++    dprintf(fd, ", supports breath: %d", supportsBreath());
++    dprintf(fd, ", supports timed: %d", supportsTimed());
++    dprintf(fd, ", breath node: %s", mBreathNode.c_str());
++}
++
++}  // namespace light
++}  // namespace hardware
++}  // namespace android
++}  // namespace aidl
+diff --git a/aidl/light/LedDevice.h b/aidl/light/LedDevice.h
+new file mode 100644
+index 0000000..167ff9b
+--- /dev/null
++++ b/aidl/light/LedDevice.h
+@@ -0,0 +1,102 @@
++/*
++ * Copyright (C) 2021-2024 The LineageOS Project
++ *
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++#pragma once
++
++#include <cstdint>
++#include <string>
++#include "IDumpable.h"
++
++namespace aidl {
++namespace android {
++namespace hardware {
++namespace light {
++
++enum LightMode {
++    STATIC,
++    BREATH,
++    TIMED,
++};
++
++/**
++ * A Linux LED device.
++ * @see https://docs.kernel.org/leds/leds-class.html
++ */
++class LedDevice : public IDumpable {
++  public:
++    LedDevice() = delete;
++
++    /**
++     * Constructor.
++     *
++     * @param name The name of the LED device
++     */
++    LedDevice(std::string name);
++
++    /**
++     * Get the name of the LED device.
++     *
++     * @return std::string The name of the LED device
++     */
++    std::string getName() const;
++
++    /**
++     * Return whether this LED device exists.
++     *
++     * @return bool true if the LED device exists, false otherwise
++     */
++    bool exists() const;
++
++    /**
++     * Return whether this LED device supports breathing.
++     * When it doesn't, calling setBrightness with LightMode::BREATH will behave like
++     * LightMode::STATIC.
++     *
++     * @return bool true if the LED device supports breathing, false otherwise
++     */
++    bool supportsBreath() const;
++
++    /**
++     * Return whether this LED device supports timed mode.
++     * When it doesn't, calling setBrightness with LightMode::TIMED will behave like
++     * LightMode::BREATH.
++     *
++     * @return bool true if the LED device supports timed mode, false otherwise
++     */
++    bool supportsTimed() const;
++
++    /**
++     * Set the brightness of the LED device.
++     *
++     * @param value The brightness value to set
++     * @param mode The light mode to use
++     * @return bool true if the brightness was set successfully, false otherwise
++     */
++    bool setBrightness(uint8_t value, LightMode mode = LightMode::STATIC, uint32_t flashOnMs = 0,
++                       uint32_t flashOffMs = 0);
++
++    /**
++     * Set the index of the LED device.
++     *
++     * @param idx The index to set
++     */
++    void setIdx(int idx);
++
++    void dump(int fd) const override;
++
++  private:
++    std::string mName;
++    int mIdx;
++    std::string mBasePath;
++    uint32_t mMaxBrightness;
++    std::string mBreathNode;
++    bool mSupportsTimed;
++};
++
++}  // namespace light
++}  // namespace hardware
++}  // namespace android
++}  // namespace aidl
+diff --git a/aidl/light/Lights.cpp b/aidl/light/Lights.cpp
+new file mode 100644
+index 0000000..53e0d5a
+--- /dev/null
++++ b/aidl/light/Lights.cpp
+@@ -0,0 +1,133 @@
++/*
++ * Copyright (C) 2021-2024 The LineageOS Project
++ *
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++#include "Lights.h"
++
++#define LOG_TAG "Lights"
++
++#include <android-base/logging.h>
++#include "Utils.h"
++
++namespace aidl {
++namespace android {
++namespace hardware {
++namespace light {
++
++#define AutoHwLight(light) \
++    { .id = static_cast<int32_t>(light), .ordinal = 0, .type = light }
++
++Lights::Lights() {
++    if (mDevices.hasBacklightDevices()) {
++        mLights.push_back(AutoHwLight(LightType::BACKLIGHT));
++    }
++
++    if (mDevices.hasButtonDevices()) {
++        mLights.push_back(AutoHwLight(LightType::BUTTONS));
++    }
++
++    if (mDevices.hasNotificationDevices()) {
++        mLights.push_back(AutoHwLight(LightType::BATTERY));
++        mLights.push_back(AutoHwLight(LightType::NOTIFICATIONS));
++        mLights.push_back(AutoHwLight(LightType::ATTENTION));
++    }
++}
++
++ndk::ScopedAStatus Lights::setLightState(int32_t id, const HwLightState& state) {
++    rgb color(state.color);
++
++    LightType type = static_cast<LightType>(id);
++    switch (type) {
++        case LightType::BACKLIGHT:
++            mDevices.setBacklightColor(color);
++            break;
++        case LightType::BUTTONS:
++            mDevices.setButtonsColor(color);
++            break;
++        case LightType::BATTERY:
++            mLastBatteryState = state;
++            updateNotificationColor();
++            break;
++        case LightType::NOTIFICATIONS:
++            mLastNotificationsState = state;
++            updateNotificationColor();
++            break;
++        case LightType::ATTENTION:
++            mLastAttentionState = state;
++            updateNotificationColor();
++            break;
++        default:
++            return ndk::ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
++            break;
++    }
++
++    return ndk::ScopedAStatus::ok();
++}
++
++ndk::ScopedAStatus Lights::getLights(std::vector<HwLight>* _aidl_return) {
++    for (const auto& light : mLights) {
++        _aidl_return->push_back(light);
++    }
++
++    return ndk::ScopedAStatus::ok();
++}
++
++binder_status_t Lights::dump(int fd, const char** /*args*/, uint32_t /*numArgs*/) {
++    dprintf(fd, "Lights AIDL:\n");
++    dprintf(fd, "\n");
++
++    dprintf(fd, "Lights:\n");
++    for (const auto& light : mLights) {
++        dprintf(fd, "- %d: LightType::%s\n", light.id, toString(light.type).c_str());
++    }
++    dprintf(fd, "\n");
++
++    dprintf(fd, "Devices:\n");
++    mDevices.dump(fd);
++    dprintf(fd, "\n");
++
++    return STATUS_OK;
++}
++
++void Lights::updateNotificationColor() {
++    std::lock_guard<std::mutex> lock(mLedMutex);
++
++    bool isBatteryLit = rgb(mLastBatteryState.color).isLit();
++    bool isAttentionLit = rgb(mLastAttentionState.color).isLit();
++    bool isNotificationsLit = rgb(mLastNotificationsState.color).isLit();
++
++    const HwLightState state = isNotificationsLit ? mLastNotificationsState
++                               : isAttentionLit   ? mLastAttentionState
++                               : isBatteryLit     ? mLastBatteryState
++                                                  : HwLightState();
++
++    rgb color(state.color);
++
++    LightMode lightMode;
++    switch (state.flashMode) {
++        case FlashMode::NONE:
++            lightMode = LightMode::STATIC;
++            break;
++        case FlashMode::TIMED:
++            lightMode = LightMode::TIMED;
++            break;
++        case FlashMode::HARDWARE:
++            lightMode = LightMode::BREATH;
++            break;
++        default:
++            LOG(ERROR) << "Unknown flash mode: " << static_cast<int>(state.flashMode);
++            lightMode = LightMode::STATIC;
++            break;
++    }
++
++    mDevices.setNotificationColor(color, lightMode, state.flashOnMs, state.flashOffMs);
++
++    return;
++}
++
++}  // namespace light
++}  // namespace hardware
++}  // namespace android
++}  // namespace aidl
+diff --git a/aidl/light/Lights.h b/aidl/light/Lights.h
+new file mode 100644
+index 0000000..362191a
+--- /dev/null
++++ b/aidl/light/Lights.h
+@@ -0,0 +1,43 @@
++/*
++ * Copyright (C) 2021-2024 The LineageOS Project
++ *
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++#pragma once
++
++#include <aidl/android/hardware/light/BnLights.h>
++#include <mutex>
++#include "Devices.h"
++
++namespace aidl {
++namespace android {
++namespace hardware {
++namespace light {
++
++class Lights : public BnLights {
++  public:
++    Lights();
++
++    ndk::ScopedAStatus setLightState(int32_t id, const HwLightState& state) override;
++    ndk::ScopedAStatus getLights(std::vector<HwLight>* _aidl_return) override;
++
++    binder_status_t dump(int fd, const char** args, uint32_t numArgs) override;
++
++  private:
++    std::vector<HwLight> mLights;
++
++    Devices mDevices;
++
++    HwLightState mLastBatteryState;
++    HwLightState mLastNotificationsState;
++    HwLightState mLastAttentionState;
++    std::mutex mLedMutex;
++
++    void updateNotificationColor();
++};
++
++}  // namespace light
++}  // namespace hardware
++}  // namespace android
++}  // namespace aidl
+diff --git a/aidl/light/RgbLedDevice.cpp b/aidl/light/RgbLedDevice.cpp
+new file mode 100644
+index 0000000..7c1230d
+--- /dev/null
++++ b/aidl/light/RgbLedDevice.cpp
+@@ -0,0 +1,146 @@
++/*
++ * Copyright (C) 2024 The LineageOS Project
++ *
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++#include "RgbLedDevice.h"
++
++#define LOG_TAG "RgbLedDevice"
++
++#include <android-base/logging.h>
++#include "Utils.h"
++
++namespace aidl {
++namespace android {
++namespace hardware {
++namespace light {
++
++RgbLedDevice::RgbLedDevice(LedDevice red, LedDevice green, LedDevice blue, std::string rgbSyncNode)
++    : mRed(red), mGreen(green), mBlue(blue), mRgbSyncNode(rgbSyncNode), mColors(Color::NONE) {
++    if (mRed.exists()) {
++        mColors |= Color::RED;
++    }
++    if (mGreen.exists()) {
++        mColors |= Color::GREEN;
++    }
++    if (mBlue.exists()) {
++        mColors |= Color::BLUE;
++    }
++    if (supportsRgbSync()) {
++        mRed.setIdx(0);
++        mGreen.setIdx(1);
++        mBlue.setIdx(2);
++    }
++}
++
++bool RgbLedDevice::exists() const {
++    return mColors != Color::NONE;
++}
++
++bool RgbLedDevice::supportsBreath() const {
++    return (!mRed.exists() || mRed.supportsBreath()) &&
++           (!mGreen.exists() || mGreen.supportsBreath()) &&
++           (!mBlue.exists() || mBlue.supportsBreath());
++}
++
++bool RgbLedDevice::supportsTimed() const {
++    return (!mRed.exists() || mRed.supportsTimed()) &&
++           (!mGreen.exists() || mGreen.supportsTimed()) &&
++           (!mBlue.exists() || mBlue.supportsTimed());
++}
++
++bool RgbLedDevice::supportsRgbSync() const {
++    return std::ifstream(mRgbSyncNode).good();
++}
++
++bool RgbLedDevice::setBrightness(rgb color, LightMode mode, uint32_t flashOnMs,
++                                 uint32_t flashOffMs) {
++    bool rc = true;
++
++    if (mColors == Color::NONE) {
++        LOG(ERROR) << "No LEDs found";
++        return false;
++    }
++
++    if (mode == LightMode::TIMED && !supportsTimed()) {
++        // Not all LEDs support timed mode, force breathing mode
++        mode = LightMode::BREATH;
++    }
++
++    if (mode == LightMode::BREATH && !supportsBreath()) {
++        // Not all LEDs support breathing, force static mode
++        mode = LightMode::STATIC;
++    }
++
++    if (mode == LightMode::TIMED && supportsRgbSync()) {
++        rc &= writeToFile(mRgbSyncNode, 0);
++    }
++
++    if (mColors == Color::ALL) {
++        rc &= mRed.setBrightness(color.red, mode, flashOnMs, flashOffMs);
++        rc &= mGreen.setBrightness(color.green, mode, flashOnMs, flashOffMs);
++        rc &= mBlue.setBrightness(color.blue, mode, flashOnMs, flashOffMs);
++    } else {
++        // Check if we have only one LED
++        if (mColors == Color::RED) {
++            rc &= mRed.setBrightness(color.toBrightness(), mode, flashOnMs, flashOffMs);
++        } else if (mColors == Color::GREEN) {
++            rc &= mGreen.setBrightness(color.toBrightness(), mode, flashOnMs, flashOffMs);
++        } else if (mColors == Color::BLUE) {
++            rc &= mBlue.setBrightness(color.toBrightness(), mode, flashOnMs, flashOffMs);
++        } else {
++            // We only have two LEDs, blend the missing color in the other two
++            if ((mColors & Color::RED) == Color::NONE) {
++                rc &= mBlue.setBrightness((color.blue + color.red) / 2, mode, flashOnMs,
++                                          flashOffMs);
++                rc &= mGreen.setBrightness((color.green + color.red) / 2, mode, flashOnMs,
++                                           flashOffMs);
++            } else if ((mColors & Color::GREEN) == Color::NONE) {
++                rc &= mRed.setBrightness((color.red + color.green) / 2, mode, flashOnMs,
++                                         flashOffMs);
++                rc &= mBlue.setBrightness((color.blue + color.green) / 2, mode, flashOnMs,
++                                          flashOffMs);
++            } else if ((mColors & Color::BLUE) == Color::NONE) {
++                rc &= mRed.setBrightness((color.red + color.blue) / 2, mode, flashOnMs, flashOffMs);
++                rc &= mGreen.setBrightness((color.green + color.blue) / 2, mode, flashOnMs,
++                                           flashOffMs);
++            }
++        }
++    }
++
++    if (mode == LightMode::TIMED && supportsRgbSync()) {
++        rc &= writeToFile(mRgbSyncNode, 1);
++    }
++
++    return rc;
++}
++
++void RgbLedDevice::dump(int fd) const {
++    dprintf(fd, "Exists: %d", exists());
++    dprintf(fd, ", supports breath: %d", supportsBreath());
++    dprintf(fd, ", supports timed: %d", supportsTimed());
++    dprintf(fd, ", supports RGB sync: %d", supportsRgbSync());
++    dprintf(fd, ", colors:");
++    if (mColors != Color::NONE) {
++        if (mColors & Color::RED) {
++            dprintf(fd, "\nRed: ");
++            mRed.dump(fd);
++        }
++        if (mColors & Color::GREEN) {
++            dprintf(fd, "\nGreen: ");
++            mGreen.dump(fd);
++        }
++        if (mColors & Color::BLUE) {
++            dprintf(fd, "\nBlue: ");
++            mBlue.dump(fd);
++        }
++    } else {
++        dprintf(fd, " None");
++    }
++}
++
++}  // namespace light
++}  // namespace hardware
++}  // namespace android
++}  // namespace aidl
+diff --git a/aidl/light/RgbLedDevice.h b/aidl/light/RgbLedDevice.h
+new file mode 100644
+index 0000000..2523eed
+--- /dev/null
++++ b/aidl/light/RgbLedDevice.h
+@@ -0,0 +1,104 @@
++/*
++ * Copyright (C) 2024 The LineageOS Project
++ *
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++#pragma once
++
++#include "IDumpable.h"
++#include "LedDevice.h"
++#include "Utils.h"
++
++namespace aidl {
++namespace android {
++namespace hardware {
++namespace light {
++
++/**
++ * A pool of LED devices that will be toggled based on the wanted color.
++ * Support all types of LED combinations, with a maximum of 3 LEDs.
++ * Also supports 2 color LEDs (*cough* ASUS *cough*).
++ */
++class RgbLedDevice : public IDumpable {
++  public:
++    RgbLedDevice() = delete;
++
++    /**
++     * Constructor.
++     *
++     * @param red The red LED device
++     * @param green The green LED device
++     * @param blue The blue LED device
++     * @param rgbSyncNode The path to RGB sync trigger
++     */
++    RgbLedDevice(LedDevice red, LedDevice green, LedDevice blue, std::string rgbSyncNode);
++
++    /**
++     * Return whether this RGB LED device exists.
++     * This is true when at least one of the LEDs exists.
++     *
++     * @return bool true if the RGB LED device exists, false otherwise
++     */
++    bool exists() const;
++
++    /**
++     * Return whether this RGB LED device supports breathing.
++     * This is true when all existing LEDs support breathing.
++     * In case this is false, calling setBrightness with LightMode::BREATH will behave like
++     * LightMode::STATIC.
++     *
++     * @return bool true if the RGB LED device supports breathing, false otherwise
++     */
++    bool supportsBreath() const;
++
++    /**
++     * Return whether this RGB LED device supports timed mode.
++     * This is true when all existing LEDs support timed mode.
++     * In case this is false, calling setBrightness with LightMode::TIMED will behave like
++     * LightMode::BREATH.
++     *
++     * @return bool true if the RGB LED device supports timed mode, false otherwise
++     */
++    bool supportsTimed() const;
++
++    /**
++     * Return whether this RGB LED device supports RGB sync.
++     *
++     * @return bool true if the RGB LED device supports RGB sync, false otherwise
++     */
++    bool supportsRgbSync() const;
++
++    /**
++     * Set the brightness of this RGB LED device.
++     *
++     * @param color The color to set
++     * @param mode The mode to set
++     * @return bool true if the brightness was set successfully, false otherwise
++     */
++    bool setBrightness(rgb color, LightMode mode = LightMode::STATIC, uint32_t flashOnMs = 0,
++                       uint32_t flashOffMs = 0);
++
++    void dump(int fd) const override;
++
++    enum Color {
++        NONE = 0,
++        RED = 1 << 0,
++        GREEN = 1 << 1,
++        BLUE = 1 << 2,
++        ALL = RED | GREEN | BLUE,
++    };
++
++  private:
++    LedDevice mRed;
++    LedDevice mGreen;
++    LedDevice mBlue;
++    std::string mRgbSyncNode;
++
++    int mColors;
++};
++
++}  // namespace light
++}  // namespace hardware
++}  // namespace android
++}  // namespace aidl
+diff --git a/aidl/light/Utils.cpp b/aidl/light/Utils.cpp
+new file mode 100644
+index 0000000..95626a7
+--- /dev/null
++++ b/aidl/light/Utils.cpp
+@@ -0,0 +1,54 @@
++/*
++ * Copyright (C) 2021-2024 The LineageOS Project
++ *
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++#include "Utils.h"
++
++namespace aidl {
++namespace android {
++namespace hardware {
++namespace light {
++
++rgb::rgb() : red(0), green(0), blue(0) {}
++
++rgb::rgb(uint8_t r, uint8_t g, uint8_t b) : red(r), green(g), blue(b){};
++
++rgb::rgb(uint32_t color) {
++    // Extract brightness from AARRGGBB.
++    uint8_t alpha = (color >> 24) & 0xFF;
++
++    // Retrieve each of the RGB colors
++    red = (color >> 16) & 0xFF;
++    green = (color >> 8) & 0xFF;
++    blue = color & 0xFF;
++
++    // Scale RGB colors if a brightness has been applied by the user
++    if (alpha > 0 && alpha < 0xFF) {
++        red = red * alpha / 0xFF;
++        green = green * alpha / 0xFF;
++        blue = blue * alpha / 0xFF;
++    }
++}
++
++bool rgb::isLit() {
++    return !!red || !!green || !!blue;
++}
++
++static constexpr uint8_t kRedWeight = 77;
++static constexpr uint8_t kGreenWeight = 150;
++static constexpr uint8_t kBlueWeight = 29;
++
++uint8_t rgb::toBrightness() {
++    return (kRedWeight * red + kGreenWeight * green + kBlueWeight * blue) >> 8;
++}
++
++uint32_t scaleBrightness(uint8_t brightness, uint32_t maxBrightness) {
++    return brightness * maxBrightness / 0xFF;
++}
++
++}  // namespace light
++}  // namespace hardware
++}  // namespace android
++}  // namespace aidl
+diff --git a/aidl/light/Utils.h b/aidl/light/Utils.h
+new file mode 100644
+index 0000000..035c737
+--- /dev/null
++++ b/aidl/light/Utils.h
+@@ -0,0 +1,60 @@
++/*
++ * Copyright (C) 2021-2024 The LineageOS Project
++ *
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++#pragma once
++
++#include <cstdint>
++#include <fstream>
++#include <string>
++
++namespace aidl {
++namespace android {
++namespace hardware {
++namespace light {
++
++struct rgb {
++    rgb();
++    rgb(uint8_t r, uint8_t g, uint8_t b);
++    rgb(uint32_t color);
++
++    uint8_t red;
++    uint8_t green;
++    uint8_t blue;
++
++    bool isLit();
++    uint8_t toBrightness();
++};
++
++uint32_t scaleBrightness(uint8_t brightness, uint32_t maxBrightness);
++
++template <typename T>
++bool readFromFile(const std::string& file, T& content) {
++    std::ifstream fileStream(file);
++
++    if (!fileStream) {
++        return false;
++    }
++
++    fileStream >> content;
++    return true;
++}
++
++template <typename T>
++bool writeToFile(const std::string& file, const T content) {
++    std::ofstream fileStream(file);
++
++    if (!fileStream) {
++        return false;
++    }
++
++    fileStream << content;
++    return true;
++}
++
++}  // namespace light
++}  // namespace hardware
++}  // namespace android
++}  // namespace aidl
+diff --git a/aidl/light/android.hardware.light-service.xiaomi.rc b/aidl/light/android.hardware.light-service.xiaomi.rc
+new file mode 100644
+index 0000000..9aff8a4
+--- /dev/null
++++ b/aidl/light/android.hardware.light-service.xiaomi.rc
+@@ -0,0 +1,106 @@
++on early-boot
++    # Backlight devices
++    chown system system /sys/class/backlight/backlight/brightness
++    chown system system /sys/class/backlight/backlight/max_brightness
++
++    chown system system /sys/class/backlight/panel0-backlight/brightness
++    chown system system /sys/class/backlight/panel0-backlight/max_brightness
++
++    # LED devices
++    chown system system /sys/class/leds/blue/blink
++    chown system system /sys/class/leds/blue/breath
++    chown system system /sys/class/leds/blue/brightness
++    chown system system /sys/class/leds/blue/duty_pcts
++    chown system system /sys/class/leds/blue/max_brightness
++    chown system system /sys/class/leds/blue/pause_hi
++    chown system system /sys/class/leds/blue/pause_lo
++    chown system system /sys/class/leds/blue/ramp_step_ms
++    chown system system /sys/class/leds/blue/start_idx
++
++    chown system system /sys/class/leds/button-backlight/blink
++    chown system system /sys/class/leds/button-backlight/breath
++    chown system system /sys/class/leds/button-backlight/brightness
++    chown system system /sys/class/leds/button-backlight/duty_pcts
++    chown system system /sys/class/leds/button-backlight/max_brightness
++    chown system system /sys/class/leds/button-backlight/pause_hi
++    chown system system /sys/class/leds/button-backlight/pause_lo
++    chown system system /sys/class/leds/button-backlight/ramp_step_ms
++    chown system system /sys/class/leds/button-backlight/start_idx
++
++    chown system system /sys/class/leds/button-backlight1/blink
++    chown system system /sys/class/leds/button-backlight1/breath
++    chown system system /sys/class/leds/button-backlight1/brightness
++    chown system system /sys/class/leds/button-backlight1/duty_pcts
++    chown system system /sys/class/leds/button-backlight1/max_brightness
++    chown system system /sys/class/leds/button-backlight1/pause_hi
++    chown system system /sys/class/leds/button-backlight1/pause_lo
++    chown system system /sys/class/leds/button-backlight1/ramp_step_ms
++    chown system system /sys/class/leds/button-backlight1/start_idx
++
++    chown system system /sys/class/leds/button-backlight2/blink
++    chown system system /sys/class/leds/button-backlight2/breath
++    chown system system /sys/class/leds/button-backlight2/brightness
++    chown system system /sys/class/leds/button-backlight2/duty_pcts
++    chown system system /sys/class/leds/button-backlight2/max_brightness
++    chown system system /sys/class/leds/button-backlight2/pause_hi
++    chown system system /sys/class/leds/button-backlight2/pause_lo
++    chown system system /sys/class/leds/button-backlight2/ramp_step_ms
++    chown system system /sys/class/leds/button-backlight2/start_idx
++
++    chown system system /sys/class/leds/green/blink
++    chown system system /sys/class/leds/green/breath
++    chown system system /sys/class/leds/green/brightness
++    chown system system /sys/class/leds/green/duty_pcts
++    chown system system /sys/class/leds/green/max_brightness
++    chown system system /sys/class/leds/green/pause_hi
++    chown system system /sys/class/leds/green/pause_lo
++    chown system system /sys/class/leds/green/ramp_step_ms
++    chown system system /sys/class/leds/green/start_idx
++
++    chown system system /sys/class/leds/lcd-backlight/blink
++    chown system system /sys/class/leds/lcd-backlight/breath
++    chown system system /sys/class/leds/lcd-backlight/brightness
++    chown system system /sys/class/leds/lcd-backlight/duty_pcts
++    chown system system /sys/class/leds/lcd-backlight/max_brightness
++    chown system system /sys/class/leds/lcd-backlight/pause_hi
++    chown system system /sys/class/leds/lcd-backlight/pause_lo
++    chown system system /sys/class/leds/lcd-backlight/ramp_step_ms
++    chown system system /sys/class/leds/lcd-backlight/start_idx
++
++    chown system system /sys/class/leds/left/blink
++    chown system system /sys/class/leds/left/breath
++    chown system system /sys/class/leds/left/brightness
++    chown system system /sys/class/leds/left/duty_pcts
++    chown system system /sys/class/leds/left/max_brightness
++    chown system system /sys/class/leds/left/pause_hi
++    chown system system /sys/class/leds/left/pause_lo
++    chown system system /sys/class/leds/left/ramp_step_ms
++    chown system system /sys/class/leds/left/start_idx
++
++    chown system system /sys/class/leds/red/blink
++    chown system system /sys/class/leds/red/breath
++    chown system system /sys/class/leds/red/brightness
++    chown system system /sys/class/leds/red/duty_pcts
++    chown system system /sys/class/leds/red/max_brightness
++    chown system system /sys/class/leds/red/pause_hi
++    chown system system /sys/class/leds/red/pause_lo
++    chown system system /sys/class/leds/red/ramp_step_ms
++    chown system system /sys/class/leds/red/start_idx
++
++    chown system system /sys/class/leds/rgb/rgb_blink
++
++    chown system system /sys/class/leds/white/blink
++    chown system system /sys/class/leds/white/breath
++    chown system system /sys/class/leds/white/brightness
++    chown system system /sys/class/leds/white/duty_pcts
++    chown system system /sys/class/leds/white/max_brightness
++    chown system system /sys/class/leds/white/pause_hi
++    chown system system /sys/class/leds/white/pause_lo
++    chown system system /sys/class/leds/white/ramp_step_ms
++    chown system system /sys/class/leds/white/start_idx
++
++service vendor.light-default /vendor/bin/hw/android.hardware.light-service.xiaomi
++    class hal
++    user system
++    group system
++    shutdown critical
+diff --git a/aidl/light/android.hardware.light-service.xiaomi.xml b/aidl/light/android.hardware.light-service.xiaomi.xml
+new file mode 100644
+index 0000000..abdd74e
+--- /dev/null
++++ b/aidl/light/android.hardware.light-service.xiaomi.xml
+@@ -0,0 +1,7 @@
++<manifest version="1.0" type="device">
++    <hal format="aidl">
++        <name>android.hardware.light</name>
++        <version>2</version>
++        <fqname>ILights/default</fqname>
++    </hal>
++</manifest>
+diff --git a/aidl/light/service.cpp b/aidl/light/service.cpp
+new file mode 100644
+index 0000000..09038cc
+--- /dev/null
++++ b/aidl/light/service.cpp
+@@ -0,0 +1,27 @@
++/*
++ * Copyright (C) 2021-2024 The LineageOS Project
++ *
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++#include "Lights.h"
++
++#define LOG_TAG "android.hardware.light-service.xiaomi"
++
++#include <android-base/logging.h>
++#include <android/binder_manager.h>
++#include <android/binder_process.h>
++
++using ::aidl::android::hardware::light::Lights;
++
++int main() {
++    ABinderProcess_setThreadPoolMaxThreadCount(0);
++    std::shared_ptr<Lights> lights = ndk::SharedRefBase::make<Lights>();
++
++    const std::string instance = std::string() + Lights::descriptor + "/default";
++    binder_status_t status = AServiceManager_addService(lights->asBinder().get(), instance.c_str());
++    CHECK(status == STATUS_OK);
++
++    ABinderProcess_joinThreadPool();
++    return EXIT_FAILURE;  // should not reach
++}
+-- 
+2.53.0
+

@@ -1,0 +1,42 @@
+From 37dbfc45833e194457fb73525ec33ade8851b041 Mon Sep 17 00:00:00 2001
+From: bachnxuan <bachnxuan@gmail.com>
+Date: Thu, 5 Mar 2026 19:59:59 +0700
+Subject: [PATCH 3/3] sepolicy: expand rw_dir_file macro
+
+Signed-off-by: bachnxuan <bachnxuan@gmail.com>
+---
+ base/vendor/ccci_mdinit.te       | 3 ++-
+ base/vendor/hal_power_default.te | 8 +++++---
+ 2 files changed, 7 insertions(+), 4 deletions(-)
+
+diff --git a/base/vendor/ccci_mdinit.te b/base/vendor/ccci_mdinit.te
+index f31ff3b..aac7868 100644
+--- a/base/vendor/ccci_mdinit.te
++++ b/base/vendor/ccci_mdinit.te
+@@ -176,4 +176,5 @@ set_prop(ccci_mdinit, vendor_mtk_ctl_ccci2_rpcd_prop)
+ set_prop(ccci_mdinit, vendor_mtk_radio_prop)
+ 
+ # Allow ccci_mdinit to R/W to mcf_ota_file
+-rw_dir_file(ccci_mdinit, mcf_ota_file)
++allow ccci_mdinit mcf_ota_file:dir r_dir_perms;
++allow ccci_mdinit mcf_ota_file:file rw_file_perms;
+diff --git a/base/vendor/hal_power_default.te b/base/vendor/hal_power_default.te
+index adc4c4b..b0a86d2 100644
+--- a/base/vendor/hal_power_default.te
++++ b/base/vendor/hal_power_default.te
+@@ -1,7 +1,9 @@
+-# To do powerhint on nodes defined in powerhint.json
+-rw_dir_file(hal_power_default, proc_perfmgr)
+-rw_dir_file(hal_power_default, proc_ppm)
++allow hal_power_default proc_perfmgr:dir search;
++allow hal_power_default proc_perfmgr:file rw_file_perms;
++allow hal_power_default proc_ppm:dir r_dir_perms;
++allow hal_power_default proc_ppm:file rw_file_perms;
+ 
++# To do powerhint on nodes defined in powerhint.json
+ r_dir_file(hal_power_default, sysfs_dvfsrc_devfreq)
+ r_dir_file(hal_power_default, proc_gpufreqv2)
+ 
+-- 
+2.53.0
+
